@@ -11,6 +11,7 @@ Item {
     signal pickOutputRequested()
 
     property var selectedPdfs: []
+    property bool merging: false
 
     function addInputFiles(filePaths) {
         if (!filePaths || filePaths.length === 0) return
@@ -188,7 +189,8 @@ Item {
                 }
                 Button {
                     id: mergeButton
-                    text: qsTr("开始合并")
+                    text: mergePage.merging ? qsTr("合并中...") : qsTr("开始合并")
+                    enabled: !mergePage.merging
                     background: Rectangle { radius: 8; color: "#ffffff"; border.color: "#d1d5db" }
                     contentItem: Text { text: mergeButton.text; color: "#111827"; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter; font.pixelSize: 16; font.bold: true }
                     onClicked: {
@@ -206,15 +208,35 @@ Item {
                         if (!out.toLowerCase().endsWith(".pdf")) {
                             out = out.replace(/\/+$/g, "") + "/merged.pdf"
                         }
-                        const ok = mergePage.pdfService.mergePdfs(mergePage.selectedPdfs, out)
-                        if (ok) {
-                            resultArea.text = qsTr("合并完成\n输出文件：") + out
-                            mergePage.pdfService.openFolder(out.substring(0, out.lastIndexOf('/')))
-                        } else {
+                        mergePage.merging = true
+                        progressBar.visible = true
+                        progressLabel.visible = true
+                        resultArea.text = qsTr("正在合并，请稍候...")
+                        const started = mergePage.pdfService.startMergePdfs(mergePage.selectedPdfs, out)
+                        if (!started) {
+                            mergePage.merging = false
+                            progressBar.visible = false
+                            progressLabel.visible = false
                             resultArea.text = qsTr("合并失败：") + mergePage.pdfService.lastError
+                            if (mergePage.feedbackDialog) { mergePage.feedbackDialog.text = resultArea.text; mergePage.feedbackDialog.open() }
                         }
-                        if (mergePage.feedbackDialog) { mergePage.feedbackDialog.text = resultArea.text; mergePage.feedbackDialog.open() }
                     }
+                }
+
+                ProgressBar {
+                    id: progressBar
+                    Layout.fillWidth: true
+                    from: 0
+                    to: 100
+                    value: mergePage.pdfService ? mergePage.pdfService.mergeProgress : 0
+                    visible: false
+                }
+
+                Label {
+                    id: progressLabel
+                    visible: false
+                    color: "#64748b"
+                    text: qsTr("合并进度：") + Math.round(progressBar.value) + "%"
                 }
             }
         }
@@ -230,6 +252,31 @@ Item {
                 wrapMode: Text.Wrap
                 placeholderText: qsTr("执行结果会显示在这里")
                 background: null
+            }
+        }
+    }
+
+    Connections {
+        target: mergePage.pdfService
+        function onMergeCompleted(success, message, outputPdf) {
+            mergePage.merging = false
+            progressBar.visible = false
+            progressLabel.visible = false
+            progressBar.value = 0
+
+            if (success) {
+                resultArea.text = qsTr("合并完成\n输出文件：") + outputPdf
+                const slash = outputPdf.lastIndexOf('/')
+                if (slash > 0) {
+                    mergePage.pdfService.openFolder(outputPdf.substring(0, slash))
+                }
+            } else {
+                resultArea.text = qsTr("合并失败：") + message
+            }
+
+            if (mergePage.feedbackDialog) {
+                mergePage.feedbackDialog.text = resultArea.text
+                mergePage.feedbackDialog.open()
             }
         }
     }

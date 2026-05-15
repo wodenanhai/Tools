@@ -130,38 +130,56 @@ Item {
                             text: qsTr("screen体积最小；ebook平衡；printer/prepress质量更高")
                         }
 
-                        Button {
-                            id: compressButton
-                            text: compressPage.compressing ? qsTr("压缩中...") : qsTr("开始压缩")
-                            enabled: !compressPage.compressing
-                            background: Rectangle { radius: 8; color: "#ffffff"; border.color: "#d1d5db" }
-                            contentItem: Text { text: compressButton.text; color: "#111827"; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter; font.pixelSize: 16; font.bold: true }
-                            onClicked: {
-                                compressPage.compressing = true
-                                resultArea.text = ""
-                                const inputPath = inputField.text.trim()
-                                let out = outputField.text.trim()
-                                if (inputPath.length === 0 || out.length === 0) {
-                                    resultArea.text = qsTr("请先选择输入 PDF 和输出路径")
-                                    if (compressPage.feedbackDialog) { compressPage.feedbackDialog.text = resultArea.text; compressPage.feedbackDialog.open() }
-                                    compressPage.compressing = false
-                                    return
-                                }
-                                if (!out.toLowerCase().endsWith(".pdf")) {
-                                    out = out.replace(/\/+$/g, "") + "/compressed.pdf"
-                                }
+                        RowLayout {
+                            spacing: 10
+                            Button {
+                                id: compressButton
+                                text: compressPage.compressing ? qsTr("压缩中...") : qsTr("开始压缩")
+                                enabled: !compressPage.compressing
+                                background: Rectangle { radius: 8; color: "#ffffff"; border.color: "#d1d5db" }
+                                contentItem: Text { text: compressButton.text; color: "#111827"; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter; font.pixelSize: 16; font.bold: true }
+                                onClicked: {
+                                    compressPage.compressing = true
+                                    resultArea.text = ""
+                                    const inputPath = inputField.text.trim()
+                                    let out = outputField.text.trim()
+                                    if (inputPath.length === 0 || out.length === 0) {
+                                        resultArea.text = qsTr("请先选择输入 PDF 和输出路径")
+                                        if (compressPage.feedbackDialog) { compressPage.feedbackDialog.text = resultArea.text; compressPage.feedbackDialog.open() }
+                                        compressPage.compressing = false
+                                        return
+                                    }
+                                    if (!out.toLowerCase().endsWith(".pdf")) {
+                                        out = out.replace(/\/+$/g, "") + "/compressed.pdf"
+                                    }
 
-                                progressBar.visible = true
-                                progressLabel.visible = true
-                                resultArea.text = qsTr("正在压缩，请稍候...")
-                                const started = compressPage.pdfService.startCompressPdf(inputPath, out, "/" + qualityBox.currentText)
-                                if (!started) {
-                                    const errText = compressPage.pdfService.lastError
-                                    resultArea.text = qsTr("压缩失败：") + (errText && errText.length > 0 ? errText : qsTr("未知错误"))
-                                    if (compressPage.feedbackDialog) { compressPage.feedbackDialog.text = resultArea.text; compressPage.feedbackDialog.open() }
-                                    compressPage.compressing = false
-                                    progressBar.visible = false
-                                    progressLabel.visible = false
+                                    progressBar.visible = true
+                                    progressLabel.visible = true
+                                    resultArea.text = qsTr("正在压缩，请稍候...")
+                                    const started = compressPage.pdfService.startCompressPdf(inputPath, out, "/" + qualityBox.currentText)
+                                    if (!started) {
+                                        const errText = compressPage.pdfService.lastError
+                                        resultArea.text = qsTr("压缩失败：") + (errText && errText.length > 0 ? errText : qsTr("未知错误"))
+                                        if (compressPage.feedbackDialog) { compressPage.feedbackDialog.text = resultArea.text; compressPage.feedbackDialog.open() }
+                                        compressPage.compressing = false
+                                        progressBar.visible = false
+                                        progressLabel.visible = false
+                                    }
+                                }
+                            }
+
+                            Button {
+                                id: cancelButton
+                                text: qsTr("中断压缩")
+                                enabled: compressPage.compressing
+                                background: Rectangle { radius: 8; color: "#ffffff"; border.color: "#d1d5db" }
+                                contentItem: Text { text: cancelButton.text; color: cancelButton.enabled ? "#111827" : "#9ca3af"; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter; font.pixelSize: 16; font.bold: true }
+                                onClicked: {
+                                    const ok = compressPage.pdfService.cancelCompressPdf()
+                                    if (!ok) {
+                                        resultArea.text = qsTr("中断失败：") + compressPage.pdfService.lastError
+                                        if (compressPage.feedbackDialog) { compressPage.feedbackDialog.text = resultArea.text; compressPage.feedbackDialog.open() }
+                                    }
                                 }
                             }
                         }

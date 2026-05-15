@@ -826,6 +826,27 @@ bool PdfSplitService::startCompressPdf(const QString &inputPdf,
     return true;
 }
 
+bool PdfSplitService::cancelCompressPdf()
+{
+    if (!m_compressingPdf) {
+        setLastError("当前没有正在进行的压缩任务");
+        return false;
+    }
+
+    if (m_compressProcess && m_compressProcess->state() != QProcess::NotRunning) {
+        m_compressProcess->kill();
+    }
+
+    if (m_compressProgressTimer) {
+        m_compressProgressTimer->stop();
+    }
+
+    setCompressingPdf(false);
+    setLastError("压缩已手动中断");
+    emit compressCompleted(false, m_lastError, m_compressOutputPdf);
+    return true;
+}
+
 bool PdfSplitService::startSplitEveryNPages(const QString &inputPdf,
                                             const QString &outputDir,
                                             int pagesPerFile)

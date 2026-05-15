@@ -41,6 +41,7 @@ public:
     Q_INVOKABLE bool startCompressPdf(const QString &inputPdf,
                                       const QString &outputPdf,
                                       const QString &quality);
+    Q_INVOKABLE bool cancelCompressPdf();
     Q_INVOKABLE bool startSplitEveryNPages(const QString &inputPdf,
                                            const QString &outputDir,
                                            int pagesPerFile);
