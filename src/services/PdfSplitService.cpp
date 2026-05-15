@@ -459,6 +459,13 @@ bool PdfSplitService::compressPdf(const QString &inputPdf,
         return false;
     }
 
+    // 避免目标文件已存在时某些环境下进入覆盖等待，导致看起来“卡住”
+    if (QFileInfo::exists(outputPdf) && !QFile::remove(outputPdf)) {
+        errorMessage = "无法覆盖已有输出文件：" + outputPdf;
+        setLastError(errorMessage);
+        return false;
+    }
+
     QDir().mkpath(QFileInfo(outputPdf).absolutePath());
 
     const QString program = resolveGhostscriptProgram();
@@ -515,6 +522,14 @@ bool PdfSplitService::startCompressPdf(const QString &inputPdf,
         return false;
     }
 
+    // 避免目标文件已存在时某些环境下进入覆盖等待，导致进度卡在 90%+
+    if (QFileInfo::exists(outputPdf) && !QFile::remove(outputPdf)) {
+        errorMessage = "无法覆盖已有输出文件：" + outputPdf;
+        setLastError(errorMessage);
+        emit compressCompleted(false, errorMessage, outputPdf);
+        return false;
+    }
+
     QDir().mkpath(QFileInfo(outputPdf).absolutePath());
 
     const QString program = resolveGhostscriptProgram();
@@ -548,7 +563,7 @@ bool PdfSplitService::startCompressPdf(const QString &inputPdf,
         connect(m_compressProgressTimer, &QTimer::timeout, this, [this]() {
             if (!m_compressingPdf) return;
             const int p = m_compressProgress;
-            if (p < 90) setCompressProgress(p + 2);
+            if (p < 95) setCompressProgress(p + 1);
         });
     }
 
