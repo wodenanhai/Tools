@@ -1,6 +1,7 @@
 #include "PdfSplitService.h"
 
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QProcess>
 #include <QRegularExpression>
@@ -47,6 +48,16 @@ bool PdfSplitService::compressingPdf() const
 int PdfSplitService::compressProgress() const
 {
     return m_compressProgress;
+}
+
+bool PdfSplitService::mergingPdf() const
+{
+    return m_mergingPdf;
+}
+
+int PdfSplitService::mergeProgress() const
+{
+    return m_mergeProgress;
 }
 
 void PdfSplitService::setConvertingImages(bool converting)
@@ -104,6 +115,25 @@ void PdfSplitService::setCompressProgress(int progress)
     }
     m_compressProgress = progress;
     emit compressProgressChanged();
+}
+
+void PdfSplitService::setMergingPdf(bool merging)
+{
+    if (m_mergingPdf == merging) {
+        return;
+    }
+    m_mergingPdf = merging;
+    emit mergingPdfChanged();
+}
+
+void PdfSplitService::setMergeProgress(int progress)
+{
+    progress = qBound(0, progress, 100);
+    if (m_mergeProgress == progress) {
+        return;
+    }
+    m_mergeProgress = progress;
+    emit mergeProgressChanged();
 }
 
 bool PdfSplitService::openFolder(const QString &folderPath)
@@ -428,6 +458,128 @@ bool PdfSplitService::mergePdfs(const QStringList &inputPdfs,
     return ok;
 }
 
+bool PdfSplitService::startMergePdfs(const QStringList &inputPdfs,
+                                     const QString &outputPdf)
+{
+    if (m_mergingPdf) {
+        setLastError("已有合并任务正在执行");
+        return false;
+    }
+
+    QString errorMessage;
+    if (inputPdfs.isEmpty() || outputPdf.trimmed().isEmpty()) {
+        errorMessage = "输入PDF列表或输出文件不能为空";
+        setLastError(errorMessage);
+        emit mergeCompleted(false, errorMessage, outputPdf);
+        return false;
+    }
+
+    QStringList validFiles;
+    validFiles.reserve(inputPdfs.size());
+    m_mergeTotalInputBytes = 0;
+    for (const QString &file : inputPdfs) {
+        const QString f = file.trimmed();
+        if (f.isEmpty()) continue;
+        const QFileInfo fi(f);
+        if (!fi.exists()) {
+            errorMessage = "输入PDF不存在：" + f;
+            setLastError(errorMessage);
+            emit mergeCompleted(false, errorMessage, outputPdf);
+            return false;
+        }
+        validFiles << f;
+        m_mergeTotalInputBytes += fi.size();
+    }
+
+    if (validFiles.size() < 2) {
+        errorMessage = "至少需要两个PDF文件进行合并";
+        setLastError(errorMessage);
+        emit mergeCompleted(false, errorMessage, outputPdf);
+        return false;
+    }
+
+    if (!ensureQpdfExists(errorMessage)) {
+        setLastError(errorMessage);
+        emit mergeCompleted(false, errorMessage, outputPdf);
+        return false;
+    }
+
+    QDir().mkpath(QFileInfo(outputPdf).absolutePath());
+    if (QFileInfo::exists(outputPdf)) {
+        QFile::remove(outputPdf);
+    }
+
+    QStringList args;
+    args << "--empty" << "--pages";
+    for (const QString &f : validFiles) args << f;
+    args << "--" << outputPdf;
+
+    const QString program = resolveQpdfProgram();
+    if (program.isEmpty()) {
+        errorMessage = "未检测到 qpdf。请先安装：brew install qpdf";
+        setLastError(errorMessage);
+        emit mergeCompleted(false, errorMessage, outputPdf);
+        return false;
+    }
+
+    m_mergeOutputPdf = outputPdf;
+    if (m_mergeProcess) {
+        m_mergeProcess->deleteLater();
+        m_mergeProcess = nullptr;
+    }
+    m_mergeProcess = new QProcess(this);
+
+    if (!m_mergeProgressTimer) {
+        m_mergeProgressTimer = new QTimer(this);
+        m_mergeProgressTimer->setInterval(500);
+        connect(m_mergeProgressTimer, &QTimer::timeout, this, [this]() {
+            if (!m_mergingPdf) return;
+            if (m_mergeTotalInputBytes <= 0) return;
+            const QFileInfo outFi(m_mergeOutputPdf);
+            const qint64 outSize = outFi.exists() ? outFi.size() : 0;
+            int p = static_cast<int>((outSize * 100) / m_mergeTotalInputBytes);
+            p = qBound(1, p, 99);
+            if (p > m_mergeProgress) {
+                setMergeProgress(p);
+            }
+        });
+    }
+
+    connect(m_mergeProcess, qOverload<int, QProcess::ExitStatus>(&QProcess::finished), this,
+            [this](int exitCode, QProcess::ExitStatus status) {
+                if (m_mergeProgressTimer) m_mergeProgressTimer->stop();
+
+                QString msg;
+                bool ok = (status == QProcess::NormalExit && exitCode == 0);
+                if (ok) {
+                    setMergeProgress(100);
+                    msg = "合并完成";
+                    setLastError(QString());
+                } else {
+                    const QString stderrText = QString::fromLocal8Bit(m_mergeProcess->readAllStandardError()).trimmed();
+                    msg = stderrText.isEmpty() ? "合并失败" : stderrText;
+                    setLastError(msg);
+                }
+                setMergingPdf(false);
+                emit mergeCompleted(ok, msg, m_mergeOutputPdf);
+            });
+
+    setMergingPdf(true);
+    setMergeProgress(1);
+    m_mergeProcess->start(program, args);
+    if (!m_mergeProcess->waitForStarted(5000)) {
+        setMergingPdf(false);
+        setMergeProgress(0);
+        errorMessage = "无法启动 qpdf 进程：" + program;
+        setLastError(errorMessage);
+        emit mergeCompleted(false, errorMessage, outputPdf);
+        return false;
+    }
+
+    m_mergeProgressTimer->start();
+    return true;
+}
+
 bool PdfSplitService::compressPdf(const QString &inputPdf,
                                  const QString &outputPdf,
                                  const QString &quality)
@@ -474,12 +626,11 @@ bool PdfSplitService::compressPdf(const QString &inputPdf,
          << "-dCompatibilityLevel=1.4"
          << "-dPDFSETTINGS=" + gsQuality
          << "-dNOPAUSE"
-         << "-dQUIET"
          << "-dBATCH"
          << "-sOutputFile=" + outputPdf
          << inputPdf;
 
-    const bool ok = runProcessCommand(program, args, errorMessage, 300000);
+    const bool ok = runProcessCommand(program, args, errorMessage, 1800000);
     setLastError(ok ? QString() : errorMessage);
     return ok;
 }
@@ -545,10 +696,27 @@ bool PdfSplitService::startCompressPdf(const QString &inputPdf,
          << "-dCompatibilityLevel=1.4"
          << "-dPDFSETTINGS=" + gsQuality
          << "-dNOPAUSE"
-         << "-dQUIET"
          << "-dBATCH"
          << "-sOutputFile=" + outputPdf
          << inputPdf;
+
+    // 真实进度基于“已处理页数/总页数”计算：先读取总页数
+    m_compressTotalPages = 0;
+    {
+        const QString qpdfProgram = resolveQpdfProgram();
+        if (!qpdfProgram.isEmpty()) {
+            QProcess pageCountProc;
+            pageCountProc.start(qpdfProgram, {"--show-npages", inputPdf});
+            if (pageCountProc.waitForStarted(3000) && pageCountProc.waitForFinished(5000)
+                && pageCountProc.exitStatus() == QProcess::NormalExit && pageCountProc.exitCode() == 0) {
+                bool okPages = false;
+                const int pages = QString::fromLocal8Bit(pageCountProc.readAllStandardOutput()).trimmed().toInt(&okPages);
+                if (okPages && pages > 0) {
+                    m_compressTotalPages = pages;
+                }
+            }
+        }
+    }
 
     m_compressOutputPdf = outputPdf;
     if (m_compressProcess) {
@@ -557,13 +725,26 @@ bool PdfSplitService::startCompressPdf(const QString &inputPdf,
     }
     m_compressProcess = new QProcess(this);
 
+    // 大文件压缩耗时长，设置保底超时，避免无限等待
+    QTimer *compressTimeoutTimer = new QTimer(m_compressProcess);
+    compressTimeoutTimer->setSingleShot(true);
+    compressTimeoutTimer->setInterval(1800000); // 30 分钟
+    connect(compressTimeoutTimer, &QTimer::timeout, this, [this]() {
+        if (m_compressProcess && m_compressProcess->state() != QProcess::NotRunning) {
+            m_compressProcess->kill();
+            setCompressingPdf(false);
+            setLastError("压缩超时（30分钟），已终止进程");
+            emit compressCompleted(false, m_lastError, m_compressOutputPdf);
+        }
+    });
+
     if (!m_compressProgressTimer) {
         m_compressProgressTimer = new QTimer(this);
-        m_compressProgressTimer->setInterval(250);
+        m_compressProgressTimer->setInterval(1000);
+        // 仅保活 UI，不再进行伪进度推进
         connect(m_compressProgressTimer, &QTimer::timeout, this, [this]() {
             if (!m_compressingPdf) return;
-            const int p = m_compressProgress;
-            if (p < 95) setCompressProgress(p + 1);
+            if (m_compressProgress <= 0) setCompressProgress(1);
         });
     }
 
@@ -586,10 +767,52 @@ bool PdfSplitService::startCompressPdf(const QString &inputPdf,
                 emit compressCompleted(ok, msg, m_compressOutputPdf);
             });
 
+    connect(m_compressProcess, &QProcess::readyReadStandardError, this, [this]() {
+        if (!m_compressingPdf || m_compressTotalPages <= 0) {
+            return;
+        }
+        // Ghostscript 常见输出包含："Page N"
+        const QString stderrText = QString::fromLocal8Bit(m_compressProcess->readAllStandardError());
+        static const QRegularExpression pageRe(R"(Page\s+(\d+))");
+        QRegularExpressionMatchIterator it = pageRe.globalMatch(stderrText);
+        int latestPage = -1;
+        while (it.hasNext()) {
+            const QRegularExpressionMatch m = it.next();
+            latestPage = m.captured(1).toInt();
+        }
+        if (latestPage > 0) {
+            const int p = qBound(1, (latestPage * 100) / m_compressTotalPages, 99);
+            if (p > m_compressProgress) {
+                setCompressProgress(p);
+            }
+        }
+    });
+
+    connect(m_compressProcess, &QProcess::readyReadStandardOutput, this, [this]() {
+        if (!m_compressingPdf || m_compressTotalPages <= 0) {
+            return;
+        }
+        const QString stdoutText = QString::fromLocal8Bit(m_compressProcess->readAllStandardOutput());
+        static const QRegularExpression pageRe(R"(Page\s+(\d+))");
+        QRegularExpressionMatchIterator it = pageRe.globalMatch(stdoutText);
+        int latestPage = -1;
+        while (it.hasNext()) {
+            const QRegularExpressionMatch m = it.next();
+            latestPage = m.captured(1).toInt();
+        }
+        if (latestPage > 0) {
+            const int p = qBound(1, (latestPage * 100) / m_compressTotalPages, 99);
+            if (p > m_compressProgress) {
+                setCompressProgress(p);
+            }
+        }
+    });
+
     setCompressingPdf(true);
-    setCompressProgress(3);
+    setCompressProgress(1);
     m_compressProcess->start(program, args);
     if (!m_compressProcess->waitForStarted(5000)) {
+        compressTimeoutTimer->stop();
         setCompressingPdf(false);
         setCompressProgress(0);
         errorMessage = "无法启动 Ghostscript 进程：" + program;
@@ -599,6 +822,7 @@ bool PdfSplitService::startCompressPdf(const QString &inputPdf,
     }
 
     m_compressProgressTimer->start();
+    compressTimeoutTimer->start();
     return true;
 }
 
@@ -645,12 +869,10 @@ bool PdfSplitService::startSplitEveryNPages(const QString &inputPdf,
     }
 
     const QFileInfo inputInfo(inputPdf);
+    m_splitInputBytes = inputInfo.size();
+    m_splitSingleOutputFile.clear();
     const QString baseName = inputInfo.completeBaseName();
     const QString outputPattern = dir.filePath(baseName + "_%d.pdf");
-
-    QStringList args;
-    args << "--split-pages=" + QString::number(pagesPerFile) << inputPdf << outputPattern;
-
     const QString program = resolveQpdfProgram();
     if (program.isEmpty()) {
         errorMessage = "未检测到 qpdf。请先安装：brew install qpdf";
@@ -658,6 +880,23 @@ bool PdfSplitService::startSplitEveryNPages(const QString &inputPdf,
         emit splitCompleted(false, errorMessage, outputDir);
         return false;
     }
+
+    int totalPages = 0;
+    {
+        QProcess pageCountProc;
+        pageCountProc.start(program, {"--show-npages", inputPdf});
+        if (pageCountProc.waitForStarted(3000) && pageCountProc.waitForFinished(5000)
+            && pageCountProc.exitStatus() == QProcess::NormalExit && pageCountProc.exitCode() == 0) {
+            bool okPages = false;
+            totalPages = QString::fromLocal8Bit(pageCountProc.readAllStandardOutput()).trimmed().toInt(&okPages);
+            if (!okPages || totalPages < 0) totalPages = 0;
+        }
+    }
+    m_splitExpectedFiles = (totalPages > 0) ? ((totalPages + pagesPerFile - 1) / pagesPerFile) : 0;
+    m_splitOutputPatternPrefix = baseName + "_";
+
+    QStringList args;
+    args << "--split-pages=" + QString::number(pagesPerFile) << inputPdf << outputPattern;
 
     m_splitOutputPath = outputDir;
     if (m_splitProcess) {
@@ -668,11 +907,20 @@ bool PdfSplitService::startSplitEveryNPages(const QString &inputPdf,
 
     if (!m_splitProgressTimer) {
         m_splitProgressTimer = new QTimer(this);
-        m_splitProgressTimer->setInterval(250);
+        m_splitProgressTimer->setInterval(500);
         connect(m_splitProgressTimer, &QTimer::timeout, this, [this]() {
             if (!m_splittingPdf) return;
-            const int p = m_splitProgress;
-            if (p < 90) setSplitProgress(p + 2);
+            if (m_splitExpectedFiles <= 0 || m_splitOutputPath.isEmpty() || m_splitOutputPatternPrefix.isEmpty()) {
+                return;
+            }
+            QDir outDir(m_splitOutputPath);
+            const QStringList files = outDir.entryList({m_splitOutputPatternPrefix + "*.pdf"}, QDir::Files);
+            const int done = files.size();
+            int p = (done * 100) / m_splitExpectedFiles;
+            p = qBound(1, p, 99);
+            if (p > m_splitProgress) {
+                setSplitProgress(p);
+            }
         });
     }
 
@@ -696,7 +944,7 @@ bool PdfSplitService::startSplitEveryNPages(const QString &inputPdf,
             });
 
     setSplittingPdf(true);
-    setSplitProgress(3);
+    setSplitProgress(1);
     m_splitProcess->start(program, args);
     if (!m_splitProcess->waitForStarted(5000)) {
         setSplittingPdf(false);
@@ -721,6 +969,8 @@ bool PdfSplitService::startSplitByPageExpression(const QString &inputPdf,
     }
 
     QString outputPdf = QDir(outputDir).filePath("selected_pages.pdf");
+    m_splitInputBytes = QFileInfo(inputPdf).size();
+    m_splitSingleOutputFile = outputPdf;
     QString errorMessage;
 
     if (inputPdf.trimmed().isEmpty() || outputDir.trimmed().isEmpty()) {
@@ -772,11 +1022,20 @@ bool PdfSplitService::startSplitByPageExpression(const QString &inputPdf,
 
     if (!m_splitProgressTimer) {
         m_splitProgressTimer = new QTimer(this);
-        m_splitProgressTimer->setInterval(250);
+        m_splitProgressTimer->setInterval(500);
         connect(m_splitProgressTimer, &QTimer::timeout, this, [this]() {
             if (!m_splittingPdf) return;
-            const int p = m_splitProgress;
-            if (p < 90) setSplitProgress(p + 2);
+            if (m_splitSingleOutputFile.isEmpty() || m_splitInputBytes <= 0) return;
+            const QString outFile = m_splitSingleOutputFile;
+            const QFileInfo outFi(outFile);
+            if (!outFi.exists()) return;
+            const qint64 outSize = outFi.size();
+            if (outSize <= 0) return;
+            int p = static_cast<int>((outSize * 100) / m_splitInputBytes);
+            p = qBound(1, p, 99);
+            if (p > m_splitProgress) {
+                setSplitProgress(p);
+            }
         });
     }
 
@@ -800,7 +1059,7 @@ bool PdfSplitService::startSplitByPageExpression(const QString &inputPdf,
             });
 
     setSplittingPdf(true);
-    setSplitProgress(3);
+    setSplitProgress(1);
     m_splitProcess->start(program, args);
     if (!m_splitProcess->waitForStarted(5000)) {
         setSplittingPdf(false);
@@ -936,6 +1195,30 @@ bool PdfSplitService::startConvertPdfToImages(const QString &inputPdf,
 
     const QFileInfo fi(inputPdf);
     const QString prefix = outDir.filePath(fi.completeBaseName() + "_page");
+    // 清理旧输出，确保“已生成文件数量”可用于真实进度
+    {
+        const QStringList oldFiles = outDir.entryList({fi.completeBaseName() + "_page-*"}, QDir::Files);
+        for (const QString &f : oldFiles) {
+            outDir.remove(f);
+        }
+    }
+    m_convertOutputPrefix = fi.completeBaseName() + "_page-";
+    m_convertTotalPages = 0;
+    {
+        const QString qpdfProgram = resolveQpdfProgram();
+        if (!qpdfProgram.isEmpty()) {
+            QProcess pageCountProc;
+            pageCountProc.start(qpdfProgram, {"--show-npages", inputPdf});
+            if (pageCountProc.waitForStarted(3000) && pageCountProc.waitForFinished(5000)
+                && pageCountProc.exitStatus() == QProcess::NormalExit && pageCountProc.exitCode() == 0) {
+                bool okPages = false;
+                const int pages = QString::fromLocal8Bit(pageCountProc.readAllStandardOutput()).trimmed().toInt(&okPages);
+                if (okPages && pages > 0) {
+                    m_convertTotalPages = pages;
+                }
+            }
+        }
+    }
     QStringList arguments;
     arguments << "-r" << QString::number(dpi);
     if (format == "jpg" || format == "jpeg") {
@@ -964,11 +1247,20 @@ bool PdfSplitService::startConvertPdfToImages(const QString &inputPdf,
 
     if (!m_convertProgressTimer) {
         m_convertProgressTimer = new QTimer(this);
-        m_convertProgressTimer->setInterval(250);
+        m_convertProgressTimer->setInterval(500);
         connect(m_convertProgressTimer, &QTimer::timeout, this, [this]() {
             if (!m_convertingImages) return;
-            const int p = m_convertProgress;
-            if (p < 90) setConvertProgress(p + 2);
+            if (m_convertTotalPages <= 0 || m_convertOutputDir.isEmpty() || m_convertOutputPrefix.isEmpty()) {
+                return;
+            }
+            QDir outDir(m_convertOutputDir);
+            const QStringList files = outDir.entryList({m_convertOutputPrefix + "*"}, QDir::Files);
+            const int done = files.size();
+            int p = (done * 100) / m_convertTotalPages;
+            p = qBound(1, p, 99);
+            if (p > m_convertProgress) {
+                setConvertProgress(p);
+            }
         });
     }
 
@@ -992,7 +1284,7 @@ bool PdfSplitService::startConvertPdfToImages(const QString &inputPdf,
             });
 
     setConvertingImages(true);
-    setConvertProgress(3);
+    setConvertProgress(1);
     m_convertProcess->start(program, arguments);
     if (!m_convertProcess->waitForStarted(5000)) {
         setConvertingImages(false);

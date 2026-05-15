@@ -13,6 +13,8 @@ class PdfSplitService : public QObject
     Q_PROPERTY(int splitProgress READ splitProgress NOTIFY splitProgressChanged)
     Q_PROPERTY(bool compressingPdf READ compressingPdf NOTIFY compressingPdfChanged)
     Q_PROPERTY(int compressProgress READ compressProgress NOTIFY compressProgressChanged)
+    Q_PROPERTY(bool mergingPdf READ mergingPdf NOTIFY mergingPdfChanged)
+    Q_PROPERTY(int mergeProgress READ mergeProgress NOTIFY mergeProgressChanged)
 
 public:
     explicit PdfSplitService(QObject *parent = nullptr);
@@ -31,6 +33,8 @@ public:
                                       int pagesPerFile);
     Q_INVOKABLE bool mergePdfs(const QStringList &inputPdfs,
                                const QString &outputPdf);
+    Q_INVOKABLE bool startMergePdfs(const QStringList &inputPdfs,
+                                    const QString &outputPdf);
     Q_INVOKABLE bool compressPdf(const QString &inputPdf,
                                  const QString &outputPdf,
                                  const QString &quality);
@@ -62,6 +66,8 @@ public:
     int splitProgress() const;
     bool compressingPdf() const;
     int compressProgress() const;
+    bool mergingPdf() const;
+    int mergeProgress() const;
 
 signals:
     void lastErrorChanged();
@@ -74,6 +80,9 @@ signals:
     void compressingPdfChanged();
     void compressProgressChanged();
     void compressCompleted(bool success, const QString &message, const QString &outputPdf);
+    void mergingPdfChanged();
+    void mergeProgressChanged();
+    void mergeCompleted(bool success, const QString &message, const QString &outputPdf);
 
 private:
     QString resolveQpdfProgram() const;
@@ -94,6 +103,8 @@ private:
     void setSplitProgress(int progress);
     void setCompressingPdf(bool compressing);
     void setCompressProgress(int progress);
+    void setMergingPdf(bool merging);
+    void setMergeProgress(int progress);
 
 private:
     QString m_lastError;
@@ -102,16 +113,30 @@ private:
     class QProcess *m_convertProcess = nullptr;
     class QTimer *m_convertProgressTimer = nullptr;
     QString m_convertOutputDir;
+    int m_convertTotalPages = 0;
+    QString m_convertOutputPrefix;
 
     bool m_splittingPdf = false;
     int m_splitProgress = 0;
     class QProcess *m_splitProcess = nullptr;
     class QTimer *m_splitProgressTimer = nullptr;
     QString m_splitOutputPath;
+    int m_splitExpectedFiles = 0;
+    QString m_splitOutputPatternPrefix;
+    qint64 m_splitInputBytes = 0;
+    QString m_splitSingleOutputFile;
 
     bool m_compressingPdf = false;
     int m_compressProgress = 0;
     class QProcess *m_compressProcess = nullptr;
     class QTimer *m_compressProgressTimer = nullptr;
     QString m_compressOutputPdf;
+    int m_compressTotalPages = 0;
+
+    bool m_mergingPdf = false;
+    int m_mergeProgress = 0;
+    class QProcess *m_mergeProcess = nullptr;
+    class QTimer *m_mergeProgressTimer = nullptr;
+    QString m_mergeOutputPdf;
+    qint64 m_mergeTotalInputBytes = 0;
 };
