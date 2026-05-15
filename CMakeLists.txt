@@ -10,14 +10,17 @@ qt_standard_project_setup(REQUIRES 6.10)
 
 qt_add_executable(appTools
     main.cpp
-    PdfSplitService.cpp
-    PdfSplitService.h
+    src/services/PdfSplitService.cpp
+    src/services/PdfSplitService.h
 )
 
 qt_add_qml_module(appTools
     URI Tools
     QML_FILES
+        qml/pages/HomePage.qml
         Main.qml
+        qml/pages/PdfSplitPage.qml
+        qml/pages/PdfToImagePage.qml
 )
 
 # Qt for iOS sets MACOSX_BUNDLE_GUI_IDENTIFIER automatically since Qt 6.1.

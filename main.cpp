@@ -3,7 +3,7 @@
 #include <QQmlContext>
 #include <QtQuickControls2/QQuickStyle>
 
-#include "PdfSplitService.h"
+#include "src/services/PdfSplitService.h"
 
 int main(int argc, char *argv[])
 {
