@@ -10,7 +10,7 @@ ApplicationWindow {
     visible: true
     title: qsTr("PDF Studio Toolbox")
 
-    property int currentPage: 0 // 0: Home, 1: Split, 2: Convert
+    property int currentPage: 0 // 0: Home, 1: Split, 2: Convert, 3: Merge, 4: Compress
 
     function toLocalPath(urlValue) {
         const s = String(urlValue)
@@ -24,13 +24,31 @@ ApplicationWindow {
         id: inputPdfDialog
         title: qsTr("选择PDF文件")
         nameFilters: ["PDF files (*.pdf)"]
-        fileMode: FileDialog.OpenFile
+        fileMode: root.currentPage === 3 ? FileDialog.OpenFiles : FileDialog.OpenFile
         onAccepted: {
-            const p = root.toLocalPath(selectedFile)
             if (root.currentPage === 1) {
+                const p = root.toLocalPath(selectedFile)
                 splitPage.pickInput(p)
             } else if (root.currentPage === 2) {
+                const p = root.toLocalPath(selectedFile)
                 convertPage.pickInput(p)
+            } else if (root.currentPage === 3) {
+                let paths = []
+                if (selectedFiles && selectedFiles.length > 0) {
+                    for (let i = 0; i < selectedFiles.length; ++i) {
+                        paths.push(root.toLocalPath(selectedFiles[i]))
+                    }
+                }
+
+                // 兼容部分平台/样式下多选对话框仅返回单文件字段的情况
+                if (paths.length === 0 && selectedFile) {
+                    paths.push(root.toLocalPath(selectedFile))
+                }
+
+                mergePage.addInputFiles(paths)
+            } else if (root.currentPage === 4) {
+                const p = root.toLocalPath(selectedFile)
+                compressPage.pickInput(p)
             }
         }
     }
@@ -44,6 +62,10 @@ ApplicationWindow {
                 splitPage.pickOutput(p)
             } else if (root.currentPage === 2) {
                 convertPage.pickOutput(p)
+            } else if (root.currentPage === 3) {
+                mergePage.pickOutput(p)
+            } else if (root.currentPage === 4) {
+                compressPage.pickOutput(p)
             }
         }
     }
@@ -131,6 +153,8 @@ ApplicationWindow {
         HomePage {
             onOpenSplitRequested: root.currentPage = 1
             onOpenConvertRequested: root.currentPage = 2
+            onOpenMergeRequested: root.currentPage = 3
+            onOpenCompressRequested: root.currentPage = 4
         }
 
         PdfSplitPage {
@@ -144,6 +168,24 @@ ApplicationWindow {
 
         PdfToImagePage {
             id: convertPage
+            pdfService: pdfSplitService
+            feedbackDialog: feedbackDialog
+            onBackRequested: root.currentPage = 0
+            onPickInputRequested: inputPdfDialog.open()
+            onPickOutputRequested: outputFolderDialog.open()
+        }
+
+        PdfMergePage {
+            id: mergePage
+            pdfService: pdfSplitService
+            feedbackDialog: feedbackDialog
+            onBackRequested: root.currentPage = 0
+            onPickInputRequested: inputPdfDialog.open()
+            onPickOutputRequested: outputFolderDialog.open()
+        }
+
+        PdfCompressPage {
+            id: compressPage
             pdfService: pdfSplitService
             feedbackDialog: feedbackDialog
             onBackRequested: root.currentPage = 0

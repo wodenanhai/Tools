@@ -177,32 +177,49 @@ Item {
                                 }
 
                                 resultArea.text = qsTr("正在拆分，请稍候...")
-                                let ok = false
+                                progressBar.visible = true
+                                progressLabel.visible = true
+                                let started = false
                                 if (splitMode.currentIndex === 0) {
-                                    ok = splitPage.pdfService.splitEveryNPages(inputPath, outputPath, pagesPerFileSpin.value)
+                                    started = splitPage.pdfService.startSplitEveryNPages(inputPath, outputPath, pagesPerFileSpin.value)
                                 } else {
                                     const expr = pageExprField.text.trim()
                                     if (expr.length === 0) {
                                         resultArea.text = qsTr("请输入页码表达式，例如 1-3,5")
                                         if (splitPage.feedbackDialog) { splitPage.feedbackDialog.text = resultArea.text; splitPage.feedbackDialog.open() }
                                         splitPage.splitting = false
+                                        progressBar.visible = false
+                                        progressLabel.visible = false
                                         return
                                     }
-                                    ok = splitPage.pdfService.splitByPageExpression(inputPath, outputPath + "/selected_pages.pdf", expr)
+                                    started = splitPage.pdfService.startSplitByPageExpression(inputPath, outputPath, expr)
                                 }
 
-                                if (ok) {
-                                    resultArea.text = splitMode.currentIndex === 0
-                                            ? qsTr("拆分完成\n输出目录：") + outputPath
-                                            : qsTr("拆分完成\n输出文件：") + outputPath + "/selected_pages.pdf"
-                                    splitPage.pdfService.openFolder(outputPath)
-                                } else {
+                                if (!started) {
                                     const errText = splitPage.pdfService.lastError
                                     resultArea.text = qsTr("拆分失败：") + (errText && errText.length > 0 ? errText : qsTr("未知错误"))
+                                    splitPage.splitting = false
+                                    progressBar.visible = false
+                                    progressLabel.visible = false
+                                    if (splitPage.feedbackDialog) { splitPage.feedbackDialog.text = resultArea.text; splitPage.feedbackDialog.open() }
                                 }
-                                if (splitPage.feedbackDialog) { splitPage.feedbackDialog.text = resultArea.text; splitPage.feedbackDialog.open() }
-                                splitPage.splitting = false
                             }
+                        }
+
+                        ProgressBar {
+                            id: progressBar
+                            Layout.fillWidth: true
+                            from: 0
+                            to: 100
+                            value: splitPage.pdfService ? splitPage.pdfService.splitProgress : 0
+                            visible: false
+                        }
+
+                        Label {
+                            id: progressLabel
+                            visible: false
+                            color: "#64748b"
+                            text: qsTr("拆分进度：") + Math.round(progressBar.value) + "%"
                         }
                     }
                 }
@@ -227,5 +244,26 @@ Item {
 
     signal pickInputRequested()
     signal pickOutputRequested()
-}
 
+    Connections {
+        target: splitPage.pdfService
+        function onSplitCompleted(success, message, outputPath) {
+            splitPage.splitting = false
+            progressBar.visible = false
+            progressLabel.visible = false
+            progressBar.value = 0
+
+            if (success) {
+                resultArea.text = qsTr("拆分完成\n输出目录：") + outputPath
+                splitPage.pdfService.openFolder(outputPath)
+            } else {
+                resultArea.text = qsTr("拆分失败：") + message
+            }
+
+            if (splitPage.feedbackDialog) {
+                splitPage.feedbackDialog.text = resultArea.text
+                splitPage.feedbackDialog.open()
+            }
+        }
+    }
+}

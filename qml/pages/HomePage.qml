@@ -6,6 +6,8 @@ Item {
     id: homePage
     signal openSplitRequested()
     signal openConvertRequested()
+    signal openMergeRequested()
+    signal openCompressRequested()
 
     ColumnLayout {
         anchors.fill: parent
@@ -131,9 +133,8 @@ Item {
                 Layout.preferredHeight: 170
                 radius: 16
                 color: "white"
-                border.color: "#e2e8f0"
+                border.color: mergeHover.containsMouse ? "#3b82f6" : "#e2e8f0"
                 border.width: 1
-                opacity: 0.8
 
                 Rectangle {
                     width: 44
@@ -155,8 +156,57 @@ Item {
                     anchors.bottom: parent.bottom
                     anchors.bottomMargin: 18
                     spacing: 8
-                    Label { text: qsTr("合并 PDF"); font.pixelSize: 24; font.bold: true; color: "#64748b" }
-                    Label { text: qsTr("即将上线"); color: "#94a3b8" }
+                    Label { text: qsTr("合并 PDF"); font.pixelSize: 24; font.bold: true; color: "#0f172a" }
+                    Label { text: qsTr("多个 PDF 按顺序合并为一个"); color: "#64748b" }
+                }
+
+                MouseArea {
+                    id: mergeHover
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: homePage.openMergeRequested()
+                }
+            }
+
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 170
+                radius: 16
+                color: "white"
+                border.color: compressHover.containsMouse ? "#3b82f6" : "#e2e8f0"
+                border.width: 1
+
+                Rectangle {
+                    width: 44
+                    height: 44
+                    radius: 12
+                    color: "#f1f5f9"
+                    anchors.left: parent.left
+                    anchors.leftMargin: 18
+                    anchors.top: parent.top
+                    anchors.topMargin: 18
+                    Label { anchors.centerIn: parent; text: "🗜"; font.pixelSize: 22; color: "#64748b" }
+                }
+
+                Column {
+                    anchors.left: parent.left
+                    anchors.leftMargin: 18
+                    anchors.right: parent.right
+                    anchors.rightMargin: 18
+                    anchors.bottom: parent.bottom
+                    anchors.bottomMargin: 18
+                    spacing: 8
+                    Label { text: qsTr("压缩 PDF"); font.pixelSize: 24; font.bold: true; color: "#0f172a" }
+                    Label { text: qsTr("使用 Ghostscript 减小文件体积"); color: "#64748b"; wrapMode: Text.WordWrap }
+                }
+
+                MouseArea {
+                    id: compressHover
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: homePage.openCompressRequested()
                 }
             }
         }
@@ -164,4 +214,3 @@ Item {
         Item { Layout.fillHeight: true }
     }
 }
-

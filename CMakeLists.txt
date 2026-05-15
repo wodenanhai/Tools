@@ -19,6 +19,8 @@ qt_add_qml_module(appTools
     QML_FILES
         qml/pages/HomePage.qml
         Main.qml
+        qml/pages/PdfMergePage.qml
+        qml/pages/PdfCompressPage.qml
         qml/pages/PdfSplitPage.qml
         qml/pages/PdfToImagePage.qml
 )

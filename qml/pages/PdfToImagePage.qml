@@ -225,18 +225,39 @@ Item {
                                 }
 
                                 resultArea.text = qsTr("正在转换，请稍候...")
-                                const ok = convertPage.pdfService.convertPdfToImages(inputPath, outputPath, imageFormatBox.currentText, dpiSpin.value)
-                                if (ok) {
-                                    resultArea.text = qsTr("转换完成\n输出目录：") + outputPath
-                                    convertPage.pdfService.openFolder(outputPath)
-                                } else {
+                                progressBar.visible = true
+                                progressLabel.visible = true
+
+                                const started = convertPage.pdfService.startConvertPdfToImages(
+                                            inputPath,
+                                            outputPath,
+                                            imageFormatBox.currentText,
+                                            dpiSpin.value)
+                                if (!started) {
                                     const errText = convertPage.pdfService.lastError
                                     resultArea.text = qsTr("转换失败：") + (errText && errText.length > 0 ? errText : qsTr("未知错误"))
+                                    if (convertPage.feedbackDialog) { convertPage.feedbackDialog.text = resultArea.text; convertPage.feedbackDialog.open() }
+                                    convertPage.converting = false
+                                    progressBar.visible = false
+                                    progressLabel.visible = false
                                 }
-
-                                if (convertPage.feedbackDialog) { convertPage.feedbackDialog.text = resultArea.text; convertPage.feedbackDialog.open() }
-                                convertPage.converting = false
                             }
+                        }
+
+                        ProgressBar {
+                            id: progressBar
+                            Layout.fillWidth: true
+                            from: 0
+                            to: 100
+                            value: convertPage.pdfService ? convertPage.pdfService.convertProgress : 0
+                            visible: false
+                        }
+
+                        Label {
+                            id: progressLabel
+                            visible: false
+                            color: "#64748b"
+                            text: qsTr("转换进度：") + Math.round(progressBar.value) + "%"
                         }
                     }
                 }
@@ -255,6 +276,28 @@ Item {
                         background: null
                     }
                 }
+            }
+        }
+    }
+
+    Connections {
+        target: convertPage.pdfService
+        function onConvertCompleted(success, message, outputDir) {
+            convertPage.converting = false
+            progressBar.visible = false
+            progressLabel.visible = false
+            progressBar.value = 0
+
+            if (success) {
+                resultArea.text = qsTr("转换完成\n输出目录：") + outputDir
+                convertPage.pdfService.openFolder(outputDir)
+            } else {
+                resultArea.text = qsTr("转换失败：") + message
+            }
+
+            if (convertPage.feedbackDialog) {
+                convertPage.feedbackDialog.text = resultArea.text
+                convertPage.feedbackDialog.open()
             }
         }
     }
