@@ -19,7 +19,7 @@ jobs:
             artifact_suffix: win64
           - name: x86
             msvc_arch: x86
-            qt_arch: win32_msvc2019
+            qt_arch: win32_msvc2022
             artifact_suffix: win32
 
     steps:
