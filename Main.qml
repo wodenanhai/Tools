@@ -10,7 +10,7 @@ ApplicationWindow {
     visible: true
     title: qsTr("PDF Studio Toolbox")
 
-    property int currentPage: 0 // 0: Home, 1: Split, 2: Convert, 3: Merge, 4: Compress
+    property int currentPage: 0 // 0: Home, 1: Split, 2: Convert, 3: Merge, 4: Compress, 5: DeletePages, 6: Rotate, 7: Reorder
 
     function toLocalPath(urlValue) {
         const s = String(urlValue)
@@ -49,6 +49,15 @@ ApplicationWindow {
             } else if (root.currentPage === 4) {
                 const p = root.toLocalPath(selectedFile)
                 compressPage.pickInput(p)
+            } else if (root.currentPage === 5) {
+                const p = root.toLocalPath(selectedFile)
+                deletePagesPage.pickInput(p)
+            } else if (root.currentPage === 6) {
+                const p = root.toLocalPath(selectedFile)
+                rotatePage.pickInput(p)
+            } else if (root.currentPage === 7) {
+                const p = root.toLocalPath(selectedFile)
+                reorderPage.pickInput(p)
             }
         }
     }
@@ -66,6 +75,12 @@ ApplicationWindow {
                 mergePage.pickOutput(p)
             } else if (root.currentPage === 4) {
                 compressPage.pickOutput(p)
+            } else if (root.currentPage === 5) {
+                deletePagesPage.pickOutput(p)
+            } else if (root.currentPage === 6) {
+                rotatePage.pickOutput(p)
+            } else if (root.currentPage === 7) {
+                reorderPage.pickOutput(p)
             }
         }
     }
@@ -155,6 +170,9 @@ ApplicationWindow {
             onOpenConvertRequested: root.currentPage = 2
             onOpenMergeRequested: root.currentPage = 3
             onOpenCompressRequested: root.currentPage = 4
+            onOpenDeletePagesRequested: root.currentPage = 5
+            onOpenRotateRequested: root.currentPage = 6
+            onOpenReorderRequested: root.currentPage = 7
         }
 
         PdfSplitPage {
@@ -186,6 +204,33 @@ ApplicationWindow {
 
         PdfCompressPage {
             id: compressPage
+            pdfService: pdfSplitService
+            feedbackDialog: feedbackDialog
+            onBackRequested: root.currentPage = 0
+            onPickInputRequested: inputPdfDialog.open()
+            onPickOutputRequested: outputFolderDialog.open()
+        }
+
+        PdfDeletePagesPage {
+            id: deletePagesPage
+            pdfService: pdfSplitService
+            feedbackDialog: feedbackDialog
+            onBackRequested: root.currentPage = 0
+            onPickInputRequested: inputPdfDialog.open()
+            onPickOutputRequested: outputFolderDialog.open()
+        }
+
+        PdfRotatePage {
+            id: rotatePage
+            pdfService: pdfSplitService
+            feedbackDialog: feedbackDialog
+            onBackRequested: root.currentPage = 0
+            onPickInputRequested: inputPdfDialog.open()
+            onPickOutputRequested: outputFolderDialog.open()
+        }
+
+        PdfReorderPage {
+            id: reorderPage
             pdfService: pdfSplitService
             feedbackDialog: feedbackDialog
             onBackRequested: root.currentPage = 0

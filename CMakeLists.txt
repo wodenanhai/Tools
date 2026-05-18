@@ -21,6 +21,9 @@ qt_add_qml_module(appTools
         Main.qml
         qml/pages/PdfMergePage.qml
         qml/pages/PdfCompressPage.qml
+        qml/pages/PdfDeletePagesPage.qml
+        qml/pages/PdfRotatePage.qml
+        qml/pages/PdfReorderPage.qml
         qml/pages/PdfSplitPage.qml
         qml/pages/PdfToImagePage.qml
 )

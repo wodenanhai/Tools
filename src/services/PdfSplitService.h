@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QStringList>
+#include <QVariantList>
 
 class PdfSplitService : public QObject
 {
@@ -27,6 +28,20 @@ public:
     Q_INVOKABLE bool splitByPageExpression(const QString &inputPdf,
                                            const QString &outputPdf,
                                            const QString &pageExpression);
+    Q_INVOKABLE bool deletePagesByExpression(const QString &inputPdf,
+                                             const QString &outputPdf,
+                                             const QString &deleteExpression);
+    Q_INVOKABLE bool rotatePdf(const QString &inputPdf,
+                               const QString &outputPdf,
+                               int angle);
+    Q_INVOKABLE QString generatePdfFirstPagePreview(const QString &inputPdf);
+    Q_INVOKABLE QStringList generatePdfAllPagePreviews(const QString &inputPdf);
+    Q_INVOKABLE bool rotatePdfByPageAngles(const QString &inputPdf,
+                                           const QString &outputPdf,
+                                           const QVariantList &pageAngles);
+    Q_INVOKABLE bool reorderPdfPages(const QString &inputPdf,
+                                     const QString &outputPdf,
+                                     const QVariantList &newOrderPages);
 
     Q_INVOKABLE bool splitEveryNPages(const QString &inputPdf,
                                       const QString &outputDir,

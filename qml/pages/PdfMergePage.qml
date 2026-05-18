@@ -105,6 +105,37 @@ Item {
                 anchors.fill: parent
                 spacing: 8
                 Label { text: qsTr("输入 PDF 列表"); font.bold: true; color: "#0f172a"; font.pixelSize: 16 }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 88
+                    radius: 10
+                    color: mergeDragArea.containsDrag ? "#dbeafe" : "#f8fafc"
+                    border.width: 1
+                    border.color: mergeDragArea.containsDrag ? "#3b82f6" : "#cbd5e1"
+                    Label { anchors.centerIn: parent; text: qsTr("拖拽多个 PDF 到这里"); color: "#334155" }
+
+                    DropArea {
+                        id: mergeDragArea
+                        anchors.fill: parent
+                        onDropped: function(drop) {
+                            if (!drop.hasUrls || drop.urls.length === 0) return
+                            let paths = []
+                            for (let i = 0; i < drop.urls.length; ++i) {
+                                const u = String(drop.urls[i])
+                                if (u.toLowerCase().endsWith(".pdf")) {
+                                    paths.push(decodeURIComponent(u.replace("file://", "")))
+                                }
+                            }
+                            if (paths.length === 0) {
+                                resultArea.text = qsTr("仅支持拖入 .pdf 文件")
+                                return
+                            }
+                            mergePage.addInputFiles(paths)
+                        }
+                    }
+                }
+
                 RowLayout {
                     Layout.fillWidth: true
                     Button {

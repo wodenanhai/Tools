@@ -37,3 +37,33 @@
 2. 业务命令执行下沉到 `src/services/`，避免 UI 与实现耦合。
 3. 新增功能时优先新增独立页面文件 + 独立服务函数。
 
+
+
+
+
+export PATH="/Users/zhangcheng/Qt/6.11.1/macos/bin:$PATH"
+
+
+# 1. 进入你的 Release 构建目录
+cd /Users/zhangcheng/Desktop/Tools/build/Qt_6_11_1_for_macOS-Release
+
+# 2. 完整打包 Qt 依赖（关键）
+macdeployqt appTools.app -always-overwrite -executable=$(pwd)/appTools.app/Contents/MacOS/appTools -verbose=3
+
+# 3. 清除隔离属性
+xattr -cr appTools.app
+
+# 4. 强制签名
+codesign --force --deep --sign - appTools.app
+
+# 5. 重新制作 DMG（用之前的命令）
+create-dmg \
+  --volname "PDF Tools" \
+  --window-pos 200 200 \
+  --window-size 600 400 \
+  --icon-size 100 \
+  --icon "appTools.app" 150 180 \
+  --hide-extension "appTools.app" \
+  --app-drop-link 450 180 \
+  "PDF-Tools.dmg" \
+  "appTools.app"

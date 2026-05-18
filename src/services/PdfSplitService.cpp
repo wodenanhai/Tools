@@ -9,6 +9,7 @@
 #include <QDesktopServices>
 #include <QTimer>
 #include <QUrl>
+#include <algorithm>
 
 PdfSplitService::PdfSplitService(QObject *parent)
     : QObject(parent)
@@ -352,6 +353,415 @@ bool PdfSplitService::splitByPageExpression(const QString &inputPdf,
     arguments << "--" << outputPdf;
 
     const bool ok = runQpdfCommand(arguments, errorMessage);
+    setLastError(ok ? QString() : errorMessage);
+    return ok;
+}
+
+bool PdfSplitService::deletePagesByExpression(const QString &inputPdf,
+                                              const QString &outputPdf,
+                                              const QString &deleteExpression)
+{
+    QString errorMessage;
+    errorMessage.clear();
+
+    if (inputPdf.trimmed().isEmpty() || outputPdf.trimmed().isEmpty()) {
+        errorMessage = "输入或输出路径不能为空";
+        setLastError(errorMessage);
+        return false;
+    }
+    if (!QFileInfo::exists(inputPdf)) {
+        errorMessage = "输入PDF不存在";
+        setLastError(errorMessage);
+        return false;
+    }
+
+    const QString expr = deleteExpression.trimmed();
+    if (expr.isEmpty()) {
+        errorMessage = "删除页码不能为空";
+        setLastError(errorMessage);
+        return false;
+    }
+
+    static const QRegularExpression validExpr(R"(^\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*$)");
+    if (!validExpr.match(expr).hasMatch()) {
+        errorMessage = "页码格式无效，示例：1,2,3 或 1-3";
+        setLastError(errorMessage);
+        return false;
+    }
+
+    // 读取总页数
+    if (!ensureQpdfExists(errorMessage)) {
+        setLastError(errorMessage);
+        return false;
+    }
+    const QString qpdfProgram = resolveQpdfProgram();
+    QProcess pageCountProc;
+    pageCountProc.start(qpdfProgram, {"--show-npages", inputPdf});
+    if (!pageCountProc.waitForStarted(3000) || !pageCountProc.waitForFinished(5000)
+        || pageCountProc.exitStatus() != QProcess::NormalExit || pageCountProc.exitCode() != 0) {
+        errorMessage = "无法读取PDF总页数";
+        setLastError(errorMessage);
+        return false;
+    }
+
+    bool okPages = false;
+    const int totalPages = QString::fromLocal8Bit(pageCountProc.readAllStandardOutput()).trimmed().toInt(&okPages);
+    if (!okPages || totalPages <= 0) {
+        errorMessage = "PDF总页数无效";
+        setLastError(errorMessage);
+        return false;
+    }
+
+    QVector<bool> removeFlags(totalPages + 1, false);
+    const QStringList parts = expr.split(',', Qt::SkipEmptyParts);
+    for (const QString &rawPart : parts) {
+        const QString part = rawPart.trimmed();
+        if (part.contains('-')) {
+            const QStringList seg = part.split('-', Qt::SkipEmptyParts);
+            if (seg.size() != 2) {
+                errorMessage = "页码区间格式无效";
+                setLastError(errorMessage);
+                return false;
+            }
+            bool ok1 = false;
+            bool ok2 = false;
+            const int s = seg[0].toInt(&ok1);
+            const int e = seg[1].toInt(&ok2);
+            if (!ok1 || !ok2 || s <= 0 || e <= 0 || s > e || e > totalPages) {
+                errorMessage = "删除页码超出范围";
+                setLastError(errorMessage);
+                return false;
+            }
+            for (int p = s; p <= e; ++p) {
+                removeFlags[p] = true;
+            }
+        } else {
+            bool ok = false;
+            const int p = part.toInt(&ok);
+            if (!ok || p <= 0 || p > totalPages) {
+                errorMessage = "删除页码超出范围";
+                setLastError(errorMessage);
+                return false;
+            }
+            removeFlags[p] = true;
+        }
+    }
+
+    QStringList keepRanges;
+    int i = 1;
+    while (i <= totalPages) {
+        while (i <= totalPages && removeFlags[i]) ++i;
+        if (i > totalPages) break;
+        const int start = i;
+        while (i <= totalPages && !removeFlags[i]) ++i;
+        const int end = i - 1;
+        if (start == end) {
+            keepRanges << QString::number(start);
+        } else {
+            keepRanges << (QString::number(start) + "-" + QString::number(end));
+        }
+    }
+
+    if (keepRanges.isEmpty()) {
+        errorMessage = "删除后没有剩余页面";
+        setLastError(errorMessage);
+        return false;
+    }
+
+    QDir().mkpath(QFileInfo(outputPdf).absolutePath());
+
+    QStringList arguments;
+    arguments << "--empty" << "--pages" << inputPdf << keepRanges.join(',') << "--" << outputPdf;
+
+    const bool ok = runQpdfCommand(arguments, errorMessage);
+    setLastError(ok ? QString() : errorMessage);
+    return ok;
+}
+
+bool PdfSplitService::rotatePdf(const QString &inputPdf,
+                                const QString &outputPdf,
+                                int angle)
+{
+    QString errorMessage;
+    errorMessage.clear();
+
+    if (inputPdf.trimmed().isEmpty() || outputPdf.trimmed().isEmpty()) {
+        errorMessage = "输入或输出路径不能为空";
+        setLastError(errorMessage);
+        return false;
+    }
+    if (!QFileInfo::exists(inputPdf)) {
+        errorMessage = "输入PDF不存在";
+        setLastError(errorMessage);
+        return false;
+    }
+    if (angle != 90 && angle != -90 && angle != 180 && angle != -180) {
+        errorMessage = "旋转角度仅支持 ±90 或 180";
+        setLastError(errorMessage);
+        return false;
+    }
+    if (!ensureQpdfExists(errorMessage)) {
+        setLastError(errorMessage);
+        return false;
+    }
+
+    QDir().mkpath(QFileInfo(outputPdf).absolutePath());
+
+    QString rotateArg;
+    if (angle == 90) {
+        rotateArg = "+90";
+    } else if (angle == -90) {
+        rotateArg = "-90";
+    } else {
+        rotateArg = "180";
+    }
+
+    QStringList arguments;
+    arguments << "--rotate=" + rotateArg + ":1-z" << inputPdf << outputPdf;
+
+    const bool ok = runQpdfCommand(arguments, errorMessage);
+    setLastError(ok ? QString() : errorMessage);
+    return ok;
+}
+
+QString PdfSplitService::generatePdfFirstPagePreview(const QString &inputPdf)
+{
+    QString errorMessage;
+    if (inputPdf.trimmed().isEmpty()) {
+        errorMessage = "输入PDF不能为空";
+        setLastError(errorMessage);
+        return QString();
+    }
+    if (!QFileInfo::exists(inputPdf)) {
+        errorMessage = "输入PDF不存在";
+        setLastError(errorMessage);
+        return QString();
+    }
+    if (!ensurePdftoppmExists(errorMessage)) {
+        setLastError(errorMessage);
+        return QString();
+    }
+
+    const QString program = resolvePdftoppmProgram();
+    if (program.isEmpty()) {
+        setLastError("未检测到 pdftoppm。请先安装：brew install poppler");
+        return QString();
+    }
+
+    const QFileInfo fi(inputPdf);
+    const QString outDirPath = QDir::temp().filePath("pdf_studio_toolbox_preview");
+    QDir().mkpath(outDirPath);
+    const QString prefix = QDir(outDirPath).filePath(fi.completeBaseName() + "_preview");
+
+    QStringList arguments;
+    arguments << "-f" << "1" << "-singlefile" << "-png" << inputPdf << prefix;
+
+    const bool ok = runProcessCommand(program, arguments, errorMessage, 120000);
+    if (!ok) {
+        setLastError(errorMessage);
+        return QString();
+    }
+
+    const QString imagePath = prefix + ".png";
+    if (!QFileInfo::exists(imagePath)) {
+        setLastError("预览图生成失败");
+        return QString();
+    }
+
+    setLastError(QString());
+    return imagePath;
+}
+
+QStringList PdfSplitService::generatePdfAllPagePreviews(const QString &inputPdf)
+{
+    QString errorMessage;
+    if (inputPdf.trimmed().isEmpty()) {
+        setLastError("输入PDF不能为空");
+        return {};
+    }
+    if (!QFileInfo::exists(inputPdf)) {
+        setLastError("输入PDF不存在");
+        return {};
+    }
+    if (!ensurePdftoppmExists(errorMessage)) {
+        setLastError(errorMessage);
+        return {};
+    }
+
+    const QString program = resolvePdftoppmProgram();
+    if (program.isEmpty()) {
+        setLastError("未检测到 pdftoppm。请先安装：brew install poppler");
+        return {};
+    }
+
+    const QFileInfo fi(inputPdf);
+    const QString outDirPath = QDir::temp().filePath("pdf_studio_toolbox_preview_all");
+    QDir outDir(outDirPath);
+    if (!outDir.exists()) {
+        QDir().mkpath(outDirPath);
+    }
+
+    const QString prefixName = fi.completeBaseName() + "_preview_all";
+    const QString prefixPath = outDir.filePath(prefixName);
+
+    // 清理旧文件
+    const QStringList oldFiles = outDir.entryList({prefixName + "-*.png"}, QDir::Files);
+    for (const QString &f : oldFiles) {
+        outDir.remove(f);
+    }
+
+    QStringList arguments;
+    arguments << "-png" << inputPdf << prefixPath;
+    if (!runProcessCommand(program, arguments, errorMessage, 300000)) {
+        setLastError(errorMessage);
+        return {};
+    }
+
+    QStringList files = outDir.entryList({prefixName + "-*.png"}, QDir::Files, QDir::Name);
+    // 按页码数字排序
+    std::sort(files.begin(), files.end(), [](const QString &a, const QString &b) {
+        const int pa = a.section('-', -1).section('.', 0, 0).toInt();
+        const int pb = b.section('-', -1).section('.', 0, 0).toInt();
+        return pa < pb;
+    });
+
+    QStringList fullPaths;
+    fullPaths.reserve(files.size());
+    for (const QString &f : files) {
+        fullPaths << outDir.filePath(f);
+    }
+
+    if (fullPaths.isEmpty()) {
+        setLastError("未生成任何预览页");
+        return {};
+    }
+
+    setLastError(QString());
+    return fullPaths;
+}
+
+bool PdfSplitService::rotatePdfByPageAngles(const QString &inputPdf,
+                                            const QString &outputPdf,
+                                            const QVariantList &pageAngles)
+{
+    QString errorMessage;
+    if (inputPdf.trimmed().isEmpty() || outputPdf.trimmed().isEmpty()) {
+        setLastError("输入或输出路径不能为空");
+        return false;
+    }
+    if (!QFileInfo::exists(inputPdf)) {
+        setLastError("输入PDF不存在");
+        return false;
+    }
+    if (!ensureQpdfExists(errorMessage)) {
+        setLastError(errorMessage);
+        return false;
+    }
+
+    const QString qpdfProgram = resolveQpdfProgram();
+    QProcess pageCountProc;
+    pageCountProc.start(qpdfProgram, {"--show-npages", inputPdf});
+    if (!pageCountProc.waitForStarted(3000) || !pageCountProc.waitForFinished(5000)
+        || pageCountProc.exitStatus() != QProcess::NormalExit || pageCountProc.exitCode() != 0) {
+        setLastError("无法读取PDF总页数");
+        return false;
+    }
+    bool okPages = false;
+    const int totalPages = QString::fromLocal8Bit(pageCountProc.readAllStandardOutput()).trimmed().toInt(&okPages);
+    if (!okPages || totalPages <= 0) {
+        setLastError("PDF总页数无效");
+        return false;
+    }
+
+    if (pageAngles.size() != totalPages) {
+        setLastError("页数与旋转设置不一致");
+        return false;
+    }
+
+    QDir().mkpath(QFileInfo(outputPdf).absolutePath());
+
+    QStringList arguments;
+    for (int i = 0; i < pageAngles.size(); ++i) {
+        const int angle = pageAngles[i].toInt();
+        int norm = angle % 360;
+        if (norm < 0) norm += 360;
+        if (norm == 0) continue;
+
+        QString rotateArg;
+        if (norm == 90) rotateArg = "+90";
+        else if (norm == 180) rotateArg = "180";
+        else if (norm == 270) rotateArg = "-90";
+        else {
+            setLastError("存在非法旋转角度，仅支持90度步进");
+            return false;
+        }
+
+        arguments << "--rotate=" + rotateArg + ":" + QString::number(i + 1);
+    }
+
+    arguments << inputPdf << outputPdf;
+    const bool ok = runQpdfCommand(arguments, errorMessage);
+    setLastError(ok ? QString() : errorMessage);
+    return ok;
+}
+
+bool PdfSplitService::reorderPdfPages(const QString &inputPdf,
+                                      const QString &outputPdf,
+                                      const QVariantList &newOrderPages)
+{
+    QString errorMessage;
+    if (inputPdf.trimmed().isEmpty() || outputPdf.trimmed().isEmpty()) {
+        setLastError("输入或输出路径不能为空");
+        return false;
+    }
+    if (!QFileInfo::exists(inputPdf)) {
+        setLastError("输入PDF不存在");
+        return false;
+    }
+    if (!ensureQpdfExists(errorMessage)) {
+        setLastError(errorMessage);
+        return false;
+    }
+
+    const QString qpdfProgram = resolveQpdfProgram();
+    QProcess pageCountProc;
+    pageCountProc.start(qpdfProgram, {"--show-npages", inputPdf});
+    if (!pageCountProc.waitForStarted(3000) || !pageCountProc.waitForFinished(5000)
+        || pageCountProc.exitStatus() != QProcess::NormalExit || pageCountProc.exitCode() != 0) {
+        setLastError("无法读取PDF总页数");
+        return false;
+    }
+    bool okPages = false;
+    const int totalPages = QString::fromLocal8Bit(pageCountProc.readAllStandardOutput()).trimmed().toInt(&okPages);
+    if (!okPages || totalPages <= 0) {
+        setLastError("PDF总页数无效");
+        return false;
+    }
+
+    if (newOrderPages.size() != totalPages) {
+        setLastError("排序页数与PDF页数不一致");
+        return false;
+    }
+
+    QVector<bool> seen(totalPages + 1, false);
+    QStringList ordered;
+    ordered.reserve(totalPages);
+    for (const QVariant &v : newOrderPages) {
+        bool ok = false;
+        const int p = v.toInt(&ok);
+        if (!ok || p <= 0 || p > totalPages || seen[p]) {
+            setLastError("排序数据无效（超范围或重复）");
+            return false;
+        }
+        seen[p] = true;
+        ordered << QString::number(p);
+    }
+
+    QDir().mkpath(QFileInfo(outputPdf).absolutePath());
+    QStringList args;
+    args << "--empty" << "--pages" << inputPdf << ordered.join(',') << "--" << outputPdf;
+
+    const bool ok = runQpdfCommand(args, errorMessage);
     setLastError(ok ? QString() : errorMessage);
     return ok;
 }

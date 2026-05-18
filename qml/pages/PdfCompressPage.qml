@@ -76,6 +76,32 @@ Item {
                         anchors.fill: parent
                         spacing: 10
                         Label { text: qsTr("输入 PDF"); font.bold: true; color: "#0f172a"; font.pixelSize: 16 }
+
+                        Rectangle {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 88
+                            radius: 10
+                            color: dragArea.containsDrag ? "#dbeafe" : "#f8fafc"
+                            border.width: 1
+                            border.color: dragArea.containsDrag ? "#3b82f6" : "#cbd5e1"
+                            Label { anchors.centerIn: parent; text: qsTr("拖拽 PDF 到这里"); color: "#334155" }
+
+                            DropArea {
+                                id: dragArea
+                                anchors.fill: parent
+                                onDropped: function(drop) {
+                                    if (!drop.hasUrls || drop.urls.length === 0) return
+                                    const first = String(drop.urls[0])
+                                    if (!first.toLowerCase().endsWith(".pdf")) {
+                                        resultArea.text = qsTr("仅支持拖入 .pdf 文件")
+                                        return
+                                    }
+                                    inputField.text = decodeURIComponent(first.replace("file://", ""))
+                                    resultArea.text = qsTr("已通过拖拽选择文件")
+                                }
+                            }
+                        }
+
                         RowLayout {
                             Layout.fillWidth: true
                             TextField { id: inputField; Layout.fillWidth: true; placeholderText: qsTr("请选择 PDF 文件") }
