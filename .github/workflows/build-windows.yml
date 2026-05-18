@@ -1,65 +1,73 @@
-name: Build Qt 6.11.0 (32bit + 64bit)
+name: Build Windows EXE (x86 + x64)
 
 on:
-  push:
-    branches: [ main ]
   workflow_dispatch:
+  push:
+    branches: [ main, master ]
+  pull_request:
 
 jobs:
-  build-windows-x64:
-    runs-on: windows-latest
-    name: Build Windows 64bit
-    steps:
-      - uses: actions/checkout@v4
+  build-windows:
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: x64
+            msvc_arch: x64
+            qt_arch: win64_msvc2022_64
+            artifact_suffix: win64
+          - name: x86
+            msvc_arch: x86
+            qt_arch: win32_msvc2019
+            artifact_suffix: win32
 
-      - name: Install Qt 6.11.0 (MinGW 64bit)
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup MSVC (${{ matrix.msvc_arch }})
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: ${{ matrix.msvc_arch }}
+
+      - name: Install Qt 6.10.0 (${{ matrix.qt_arch }})
         uses: jurplel/install-qt-action@v4
         with:
-          version: '6.11.0'
-          target: 'desktop'
+          version: '6.10.0'
           host: 'windows'
-          arch: 'win64_mingw'
+          target: 'desktop'
+          arch: ${{ matrix.qt_arch }}
+          cache: true
 
-      - name: Configure CMake
-        run: cmake -B build -G "Ninja" -DCMAKE_BUILD_TYPE=Release
+      - name: Configure (CMake)
+        run: cmake -S . -B build -G "Ninja" -DCMAKE_BUILD_TYPE=Release
 
       - name: Build
-        run: cmake --build build -j4
+        run: cmake --build build --config Release --parallel
 
-      - name: Deploy DLLs
-        run: windeployqt build/appTools.exe
+      - name: Prepare package folder
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item -Path "build/appTools.exe" -Destination "dist/appTools.exe" -Force
 
-      - name: Upload 64bit
+      - name: Deploy Qt runtime (windeployqt)
+        shell: pwsh
+        run: |
+          $windeployqt = Get-Command windeployqt | Select-Object -ExpandProperty Source
+          & $windeployqt --release --qmldir . --verbose 1 dist/appTools.exe
+
+      - name: Create ZIP
+        shell: pwsh
+        run: |
+          $zipName = "PDF-Studio-Toolbox-${{ matrix.artifact_suffix }}.zip"
+          if (Test-Path $zipName) { Remove-Item $zipName -Force }
+          Compress-Archive -Path dist/* -DestinationPath $zipName
+
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: appTools-Win64
-          path: build/
-
-  build-windows-x86:
-    runs-on: windows-latest
-    name: Build Windows 32bit
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Qt 6.11.0 (MinGW 32bit)
-        uses: jurplel/install-qt-action@v4
-        with:
-          version: '6.11.0'
-          target: 'desktop'
-          host: 'windows'
-          arch: 'win32_mingw'
-
-      - name: Configure CMake
-        run: cmake -B build -G "Ninja" -DCMAKE_BUILD_TYPE=Release
-
-      - name: Build
-        run: cmake --build build -j4
-
-      - name: Deploy DLLs
-        run: windeployqt build/appTools.exe
-
-      - name: Upload 32bit
-        uses: actions/upload-artifact@v4
-        with:
-          name: appTools-Win32
-          path: build/
+          name: PDF-Studio-Toolbox-${{ matrix.artifact_suffix }}
+          path: PDF-Studio-Toolbox-${{ matrix.artifact_suffix }}.zip
+          if-no-files-found: error
