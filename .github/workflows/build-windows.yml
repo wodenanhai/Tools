@@ -1,0 +1,65 @@
+name: Build Qt 6.11.1 (32bit + 64bit)
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-windows-x64:
+    runs-on: windows-latest
+    name: Build Windows 64bit
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Qt 6.11.1 (MinGW 64bit)
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.11.1'
+          target: 'desktop'
+          host: 'windows'
+          arch: 'win64_mingw'
+
+      - name: Configure CMake
+        run: cmake -B build -G "Ninja" -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build -j4
+
+      - name: Deploy DLLs
+        run: windeployqt build/appTools.exe
+
+      - name: Upload 64bit
+        uses: actions/upload-artifact@v4
+        with:
+          name: appTools-Win64
+          path: build/
+
+  build-windows-x86:
+    runs-on: windows-latest
+    name: Build Windows 32bit
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Qt 6.11.1 (MinGW 32bit)
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.11.1'
+          target: 'desktop'
+          host: 'windows'
+          arch: 'win32_mingw'
+
+      - name: Configure CMake
+        run: cmake -B build -G "Ninja" -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build -j4
+
+      - name: Deploy DLLs
+        run: windeployqt build/appTools.exe
+
+      - name: Upload 32bit
+        uses: actions/upload-artifact@v4
+        with:
+          name: appTools-Win32
+          path: build/
